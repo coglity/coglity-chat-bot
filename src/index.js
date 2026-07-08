@@ -20,9 +20,10 @@ app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
 app.post('/chat', authMiddleware, async (req, res) => {
   const { text, sessionId } = req.body;
-  if (!text) return res.status(400).json({ error: 'text is required' });
+  if (text === undefined || text === null) return res.status(400).json({ error: 'text is required' });
   try {
-    const reply = await handleChat(sessionId ?? 'default', text);
+    const greeting = text.trim() === '' ? 'Hello' : text;
+    const reply = await handleChat(sessionId ?? 'default', greeting);
     res.json({ text: reply });
   } catch (err) {
     console.error('[chat error]', err.message);
