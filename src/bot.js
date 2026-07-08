@@ -1,4 +1,10 @@
 import { AzureOpenAI } from 'openai';
+import { appendFileSync, existsSync, readFileSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const LOG_FILE = join(__dirname, '..', 'token_log.jsonl');
 
 const client = new AzureOpenAI({
   endpoint: process.env.AZURE_OPENAI_ENDPOINT,
@@ -44,8 +50,23 @@ const tokenStats = {
   totalTokens: 0,
   requestCount: 0,
   sessionCount: 0,
-  history: [], // last 100 requests
+  history: [], // in-memory, full history since last restart
 };
+
+// Load existing log totals into memory on startup
+if (existsSync(LOG_FILE)) {
+  try {
+    const lines = readFileSync(LOG_FILE, 'utf8').trim().split('\n').filter(Boolean);
+    for (const line of lines) {
+      const e = JSON.parse(line);
+      tokenStats.totalPromptTokens += e.promptTokens ?? 0;
+      tokenStats.totalCompletionTokens += e.completionTokens ?? 0;
+      tokenStats.totalTokens += e.totalTokens ?? 0;
+      tokenStats.requestCount++;
+      tokenStats.history.push(e);
+    }
+  } catch { /* ignore corrupt lines */ }
+}
 
 function getHistory(sessionId) {
   if (!sessions.has(sessionId)) {
@@ -102,18 +123,22 @@ export async function handleChat(sessionId, text) {
     tokenStats.totalCompletionTokens += usage.completion_tokens ?? 0;
     tokenStats.totalTokens += usage.total_tokens ?? 0;
     tokenStats.requestCount++;
-    tokenStats.history.push({
+    const entry = {
       ts: new Date().toISOString(),
       sessionId,
       promptTokens: usage.prompt_tokens ?? 0,
       completionTokens: usage.completion_tokens ?? 0,
       totalTokens: usage.total_tokens ?? 0,
-    });
-    // Keep only last 100 entries
-    if (tokenStats.history.length > 100) tokenStats.history.shift();
+    };
+    tokenStats.history.push(entry);
+    try { appendFileSync(LOG_FILE, JSON.stringify(entry) + '\n'); } catch { /* non-fatal */ }
   }
 
   return reply;
+}
+
+export function getTokenLogFile() {
+  return LOG_FILE;
 }
 
 export function getTokenStats() {

@@ -17,7 +17,9 @@
     .card .value.blue { color: #60a5fa; }
     .card .value.amber { color: #fbbf24; }
     .card .value.purple { color: #a78bfa; }
-    .section-title { font-size: 14px; font-weight: 600; color: #94a3b8; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.06em; }
+    .toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+    .section-title { font-size: 14px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.06em; }
+    .count-label { font-size: 13px; color: #64748b; }
     table { width: 100%; border-collapse: collapse; background: #1e2130; border: 1px solid #2d3348; border-radius: 12px; overflow: hidden; }
     th { text-align: left; padding: 12px 16px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #64748b; border-bottom: 1px solid #2d3348; }
     td { padding: 10px 16px; font-size: 13px; border-bottom: 1px solid #1a1f2e; font-family: 'SF Mono', 'Cascadia Code', monospace; }
@@ -26,34 +28,47 @@
     .badge { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; }
     .badge.prompt { background: #1e3a5f; color: #60a5fa; }
     .badge.completion { background: #1a3a2a; color: #34d399; }
-    .refresh { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; background: #2d3348; border: 1px solid #3d4562; border-radius: 8px; color: #e2e8f0; font-size: 13px; cursor: pointer; margin-bottom: 24px; }
-    .refresh:hover { background: #3d4562; }
-    .api-key-row { display: flex; gap: 12px; margin-bottom: 32px; align-items: center; }
+    .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; background: #2d3348; border: 1px solid #3d4562; border-radius: 8px; color: #e2e8f0; font-size: 13px; cursor: pointer; }
+    .btn:hover { background: #3d4562; }
+    .btn.teal { background: #0d3d3a; border-color: #0f5c57; color: #34d399; }
+    .btn.teal:hover { background: #0f5c57; }
+    .api-key-row { display: flex; gap: 12px; margin-bottom: 32px; align-items: center; flex-wrap: wrap; }
     input[type=text] { flex: 1; max-width: 360px; padding: 8px 12px; background: #1e2130; border: 1px solid #2d3348; border-radius: 8px; color: #e2e8f0; font-size: 13px; font-family: monospace; outline: none; }
     input[type=text]:focus { border-color: #60a5fa; }
     .api-label { font-size: 13px; color: #94a3b8; }
     #error { color: #f87171; font-size: 13px; margin-top: 8px; display: none; }
+    .pagination { display: flex; align-items: center; gap: 8px; margin-top: 16px; justify-content: flex-end; flex-wrap: wrap; }
+    .page-btn { padding: 6px 12px; background: #1e2130; border: 1px solid #2d3348; border-radius: 6px; color: #94a3b8; font-size: 13px; cursor: pointer; }
+    .page-btn:hover { background: #2d3348; color: #e2e8f0; }
+    .page-btn.active { background: #2563eb; border-color: #2563eb; color: #fff; }
+    .page-info { font-size: 13px; color: #64748b; }
   </style>
 </head>
 <body>
   <h1>Gizmo Token Usage</h1>
-  <p class="sub">Live token consumption for the BFSI bot — refreshes every 10 seconds</p>
+  <p class="sub">Full token consumption log for the BFSI bot — refreshes every 10 seconds</p>
 
   <div class="api-key-row">
     <span class="api-label">API Key:</span>
-    <input type="text" id="apiKey" placeholder="Enter x-api-key" value="" />
-    <button class="refresh" onclick="load()">Refresh now</button>
+    <input type="text" id="apiKey" placeholder="Enter x-api-key" />
+    <button class="btn" onclick="load()">&#8635; Refresh</button>
+    <button class="btn teal" onclick="exportCsv()">&#8595; Export CSV</button>
   </div>
   <div id="error">Failed to load — check your API key or ensure the bot is running.</div>
 
   <div class="grid" id="stats"></div>
 
-  <div class="section-title">Last 100 requests</div>
+  <div class="toolbar">
+    <span class="section-title">All Requests</span>
+    <span class="count-label" id="countLabel"></span>
+  </div>
   <table>
     <thead>
       <tr>
+        <th>#</th>
+        <th>Date</th>
         <th>Time</th>
-        <th>Session</th>
+        <th>Session ID</th>
         <th>Prompt</th>
         <th>Completion</th>
         <th>Total</th>
@@ -61,16 +76,23 @@
     </thead>
     <tbody id="history"></tbody>
   </table>
+  <div class="pagination" id="pagination"></div>
 
   <script>
     const BOT_URL = window.location.hostname === 'localhost'
       ? 'http://localhost:3000'
       : window.location.origin;
 
+    const PAGE_SIZE = 50;
+    let allRows = [];
+    let currentPage = 1;
+
     function fmt(n) { return Number(n).toLocaleString(); }
 
+    function apiKey() { return document.getElementById('apiKey').value.trim(); }
+
     async function load() {
-      const key = document.getElementById('apiKey').value.trim();
+      const key = apiKey();
       if (!key) return;
       try {
         const res = await fetch(`${BOT_URL}/tokens`, { headers: { 'x-api-key': key } });
@@ -87,22 +109,84 @@
           <div class="card"><div class="label">Est. Cost (USD)</div><div class="value green">$${d.estimatedCostUsd}</div></div>
         `;
 
-        const rows = (d.history || []).slice().reverse().map(h => `
-          <tr>
-            <td>${new Date(h.ts).toLocaleTimeString()}</td>
-            <td>${h.sessionId?.slice(0, 12) ?? '—'}…</td>
-            <td><span class="badge prompt">${fmt(h.promptTokens)}</span></td>
-            <td><span class="badge completion">${fmt(h.completionTokens)}</span></td>
-            <td>${fmt(h.totalTokens)}</td>
-          </tr>
-        `).join('');
-        document.getElementById('history').innerHTML = rows || '<tr><td colspan="5" style="color:#64748b;text-align:center">No requests yet</td></tr>';
+        allRows = (d.history || []).slice().reverse();
+        currentPage = 1;
+        renderTable();
       } catch (e) {
         document.getElementById('error').style.display = 'block';
       }
     }
 
-    // Auto-load if key is pre-filled
+    function renderTable() {
+      const total = allRows.length;
+      const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+      currentPage = Math.min(currentPage, totalPages);
+      const start = (currentPage - 1) * PAGE_SIZE;
+      const page = allRows.slice(start, start + PAGE_SIZE);
+
+      document.getElementById('countLabel').textContent =
+        total > 0 ? `${fmt(total)} total entries` : '';
+
+      const rows = page.map((h, i) => {
+        const d = new Date(h.ts);
+        const globalIdx = total - start - i;
+        return `<tr>
+          <td style="color:#64748b">${globalIdx}</td>
+          <td>${d.toLocaleDateString()}</td>
+          <td>${d.toLocaleTimeString()}</td>
+          <td style="color:#94a3b8">${h.sessionId ?? '—'}</td>
+          <td><span class="badge prompt">${fmt(h.promptTokens)}</span></td>
+          <td><span class="badge completion">${fmt(h.completionTokens)}</span></td>
+          <td>${fmt(h.totalTokens)}</td>
+        </tr>`;
+      }).join('');
+
+      document.getElementById('history').innerHTML =
+        rows || '<tr><td colspan="7" style="color:#64748b;text-align:center;padding:24px">No requests yet</td></tr>';
+
+      // Pagination
+      const pag = document.getElementById('pagination');
+      if (totalPages <= 1) { pag.innerHTML = ''; return; }
+
+      let html = `<span class="page-info">Page ${currentPage} of ${totalPages}</span>`;
+      html += `<button class="page-btn" onclick="goPage(1)" ${currentPage===1?'disabled':''}>«</button>`;
+      html += `<button class="page-btn" onclick="goPage(${currentPage-1})" ${currentPage===1?'disabled':''}>‹</button>`;
+
+      const range = [];
+      for (let p = Math.max(1, currentPage-2); p <= Math.min(totalPages, currentPage+2); p++) range.push(p);
+      for (const p of range) {
+        html += `<button class="page-btn ${p===currentPage?'active':''}" onclick="goPage(${p})">${p}</button>`;
+      }
+
+      html += `<button class="page-btn" onclick="goPage(${currentPage+1})" ${currentPage===totalPages?'disabled':''}>›</button>`;
+      html += `<button class="page-btn" onclick="goPage(${totalPages})" ${currentPage===totalPages?'disabled':''}>»</button>`;
+      pag.innerHTML = html;
+    }
+
+    function goPage(p) {
+      currentPage = p;
+      renderTable();
+      window.scrollTo({ top: document.querySelector('table').offsetTop - 20, behavior: 'smooth' });
+    }
+
+    function exportCsv() {
+      const key = apiKey();
+      if (!key) { alert('Enter your API key first'); return; }
+      window.location.href = `${BOT_URL}/tokens/export?key=${encodeURIComponent(key)}`;
+      // Actually use header-based auth via a fetch + blob download
+      fetch(`${BOT_URL}/tokens/export`, { headers: { 'x-api-key': key } })
+        .then(r => r.blob())
+        .then(blob => {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `gizmo_token_log_${new Date().toISOString().slice(0,10)}.csv`;
+          a.click();
+          URL.revokeObjectURL(url);
+        })
+        .catch(() => alert('Export failed — check API key'));
+    }
+
     const saved = localStorage.getItem('gizmo_api_key');
     if (saved) document.getElementById('apiKey').value = saved;
     document.getElementById('apiKey').addEventListener('change', e => localStorage.setItem('gizmo_api_key', e.target.value));
