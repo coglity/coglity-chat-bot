@@ -55,12 +55,32 @@ function getHistory(sessionId) {
   return sessions.get(sessionId);
 }
 
+async function createWithRetry(params, retries = 4) {
+  let delay = 2000;
+  for (let i = 0; i <= retries; i++) {
+    try {
+      return await client.chat.completions.create(params);
+    } catch (err) {
+      const is429 = err?.status === 429 || err?.message?.includes('429') || err?.message?.includes('rate limit');
+      if (is429 && i < retries) {
+        // Honour Retry-After header if present, else exponential backoff
+        const retryAfter = parseInt(err?.headers?.['retry-after'] ?? '0', 10);
+        const wait = retryAfter > 0 ? retryAfter * 1000 : delay;
+        await new Promise(r => setTimeout(r, wait));
+        delay *= 2;
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 export async function handleChat(sessionId, text) {
   const history = getHistory(sessionId);
 
   history.push({ role: 'user', content: text });
 
-  const response = await client.chat.completions.create({
+  const response = await createWithRetry({
     model: process.env.AZURE_OPENAI_CHAT_DEPLOYMENT,
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
