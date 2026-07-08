@@ -1,6 +1,11 @@
 import 'dotenv/config';
 import express from 'express';
-import { handleChat } from './bot.js';
+import { createRequire } from 'module';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import { handleChat, getTokenStats } from './bot.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const app = express();
 app.use(express.json());
@@ -17,6 +22,10 @@ function authMiddleware(req, res, next) {
 }
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
+
+app.get('/tokens', authMiddleware, (_req, res) => res.json(getTokenStats()));
+
+app.get('/tokens/dashboard', (_req, res) => res.sendFile(join(__dirname, 'tokens.html')));
 
 app.post('/chat', authMiddleware, async (req, res) => {
   const { text, sessionId } = req.body;

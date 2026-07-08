@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gizmo — Token Usage</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f1117; color: #e2e8f0; min-height: 100vh; padding: 32px; }
+    h1 { font-size: 24px; font-weight: 600; margin-bottom: 4px; }
+    .sub { color: #94a3b8; font-size: 14px; margin-bottom: 32px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 32px; }
+    .card { background: #1e2130; border: 1px solid #2d3348; border-radius: 12px; padding: 20px; }
+    .card .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #64748b; margin-bottom: 8px; }
+    .card .value { font-size: 28px; font-weight: 700; color: #f1f5f9; }
+    .card .value.green { color: #34d399; }
+    .card .value.blue { color: #60a5fa; }
+    .card .value.amber { color: #fbbf24; }
+    .card .value.purple { color: #a78bfa; }
+    .section-title { font-size: 14px; font-weight: 600; color: #94a3b8; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.06em; }
+    table { width: 100%; border-collapse: collapse; background: #1e2130; border: 1px solid #2d3348; border-radius: 12px; overflow: hidden; }
+    th { text-align: left; padding: 12px 16px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #64748b; border-bottom: 1px solid #2d3348; }
+    td { padding: 10px 16px; font-size: 13px; border-bottom: 1px solid #1a1f2e; font-family: 'SF Mono', 'Cascadia Code', monospace; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #252a3d; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; }
+    .badge.prompt { background: #1e3a5f; color: #60a5fa; }
+    .badge.completion { background: #1a3a2a; color: #34d399; }
+    .refresh { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; background: #2d3348; border: 1px solid #3d4562; border-radius: 8px; color: #e2e8f0; font-size: 13px; cursor: pointer; margin-bottom: 24px; }
+    .refresh:hover { background: #3d4562; }
+    .api-key-row { display: flex; gap: 12px; margin-bottom: 32px; align-items: center; }
+    input[type=text] { flex: 1; max-width: 360px; padding: 8px 12px; background: #1e2130; border: 1px solid #2d3348; border-radius: 8px; color: #e2e8f0; font-size: 13px; font-family: monospace; outline: none; }
+    input[type=text]:focus { border-color: #60a5fa; }
+    .api-label { font-size: 13px; color: #94a3b8; }
+    #error { color: #f87171; font-size: 13px; margin-top: 8px; display: none; }
+  </style>
+</head>
+<body>
+  <h1>Gizmo Token Usage</h1>
+  <p class="sub">Live token consumption for the BFSI bot — refreshes every 10 seconds</p>
+
+  <div class="api-key-row">
+    <span class="api-label">API Key:</span>
+    <input type="text" id="apiKey" placeholder="Enter x-api-key" value="" />
+    <button class="refresh" onclick="load()">Refresh now</button>
+  </div>
+  <div id="error">Failed to load — check your API key or ensure the bot is running.</div>
+
+  <div class="grid" id="stats"></div>
+
+  <div class="section-title">Last 100 requests</div>
+  <table>
+    <thead>
+      <tr>
+        <th>Time</th>
+        <th>Session</th>
+        <th>Prompt</th>
+        <th>Completion</th>
+        <th>Total</th>
+      </tr>
+    </thead>
+    <tbody id="history"></tbody>
+  </table>
+
+  <script>
+    const BOT_URL = window.location.hostname === 'localhost'
+      ? 'http://localhost:3000'
+      : window.location.origin;
+
+    function fmt(n) { return Number(n).toLocaleString(); }
+
+    async function load() {
+      const key = document.getElementById('apiKey').value.trim();
+      if (!key) return;
+      try {
+        const res = await fetch(`${BOT_URL}/tokens`, { headers: { 'x-api-key': key } });
+        if (!res.ok) throw new Error(res.status);
+        document.getElementById('error').style.display = 'none';
+        const d = await res.json();
+
+        document.getElementById('stats').innerHTML = `
+          <div class="card"><div class="label">Total Tokens</div><div class="value blue">${fmt(d.totalTokens)}</div></div>
+          <div class="card"><div class="label">Prompt Tokens</div><div class="value">${fmt(d.totalPromptTokens)}</div></div>
+          <div class="card"><div class="label">Completion Tokens</div><div class="value green">${fmt(d.totalCompletionTokens)}</div></div>
+          <div class="card"><div class="label">Requests</div><div class="value amber">${fmt(d.requestCount)}</div></div>
+          <div class="card"><div class="label">Active Sessions</div><div class="value purple">${fmt(d.activeSessions)}</div></div>
+          <div class="card"><div class="label">Est. Cost (USD)</div><div class="value green">$${d.estimatedCostUsd}</div></div>
+        `;
+
+        const rows = (d.history || []).slice().reverse().map(h => `
+          <tr>
+            <td>${new Date(h.ts).toLocaleTimeString()}</td>
+            <td>${h.sessionId?.slice(0, 12) ?? '—'}…</td>
+            <td><span class="badge prompt">${fmt(h.promptTokens)}</span></td>
+            <td><span class="badge completion">${fmt(h.completionTokens)}</span></td>
+            <td>${fmt(h.totalTokens)}</td>
+          </tr>
+        `).join('');
+        document.getElementById('history').innerHTML = rows || '<tr><td colspan="5" style="color:#64748b;text-align:center">No requests yet</td></tr>';
+      } catch (e) {
+        document.getElementById('error').style.display = 'block';
+      }
+    }
+
+    // Auto-load if key is pre-filled
+    const saved = localStorage.getItem('gizmo_api_key');
+    if (saved) document.getElementById('apiKey').value = saved;
+    document.getElementById('apiKey').addEventListener('change', e => localStorage.setItem('gizmo_api_key', e.target.value));
+
+    load();
+    setInterval(load, 10000);
+  </script>
+</body>
+</html>
